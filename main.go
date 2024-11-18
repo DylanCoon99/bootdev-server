@@ -18,7 +18,9 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	DBQueries *database.Queries
-	Platform string
+	Platform  string
+	jwtSecret string
+	polkaKey  string
 }
 
 
@@ -33,7 +35,15 @@ func main() {
 		fmt.Errorf("Failed to start db")
 		return
 	}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is not set")
+	}
 
+	polkaKey := os.Getenv("POLKA_KEY")
+	if polkaKey == "" {
+		log.Fatal("POLKA_KEY environment variable is not set")
+	}
 
 	dbQueries := database.New(db)
 
@@ -44,6 +54,7 @@ func main() {
 	var apiCfg apiConfig
 	apiCfg.DBQueries = dbQueries
 	apiCfg.Platform = platform
+	apiCfg.polkaKey = polkaKey
 
 	// create a new http.ServeMux
 	serveMultiplexer := http.NewServeMux()
@@ -55,6 +66,14 @@ func main() {
 	//serveMultiplexer.HandleFunc("POST /api/validate_chirp", validateChirpHandler)
 	serveMultiplexer.HandleFunc("POST /api/users", apiCfg.createUserHandler)
 	serveMultiplexer.HandleFunc("POST /api/chirps", apiCfg.createChirpHandler)
+	serveMultiplexer.HandleFunc("GET /api/chirps", apiCfg.getChirpsHandler)
+	serveMultiplexer.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirpHandler)
+	serveMultiplexer.HandleFunc("POST /api/login", apiCfg.loginHandler)
+	serveMultiplexer.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
+	serveMultiplexer.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
+	serveMultiplexer.HandleFunc("PUT /api/users", apiCfg.handlerUpdateUser)
+	serveMultiplexer.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerDeleteChirp)
+	serveMultiplexer.HandleFunc("POST /api/polka/webhooks", apiCfg.handlerWebhook)
 
 
 
@@ -66,10 +85,14 @@ func main() {
 	}
 
 	err = server.ListenAndServe()
+
+	fmt.Printf("Serving on port: %s", port)
+
 	if err != nil {
 		fmt.Errorf("Failed to listen and serve")
 		return
 	}
+
 
 	log.Fatal(server.ListenAndServe())
 }
